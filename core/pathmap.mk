@@ -16,7 +16,14 @@
 
 #
 # A central place to define mappings to paths, to avoid hard-coding
-# them in Android.mk files.
+# them in Android.mk files. Not meant for header file include directories,
+# despite the fact that it was historically used for that!
+#
+# If you want this for a library's header files, use LOCAL_EXPORT_C_INCLUDES
+# instead. Then users of the library don't have to do anything --- they'll
+# have the correct header files added to their include path automatically.
+#
+
 #
 # TODO: Allow each project to define stuff like this before the per-module
 #       Android.mk files are included, so we don't need to have a big central
@@ -30,17 +37,11 @@ pathmap_INCL := \
     camera:system/media/camera/include \
     frameworks-base:frameworks/base/include \
     frameworks-native:frameworks/native/include \
-    libc:bionic/libc/include \
     libhardware:hardware/libhardware/include \
     libhardware_legacy:hardware/libhardware_legacy/include \
-    libhost:build/libs/host/include \
-    libm:bionic/libm/include \
-    libnativehelper:libnativehelper/include \
-    libpagemap:system/extras/libpagemap/include \
     libril:hardware/ril/include \
-    libstdc++:bionic/libstdc++/include \
-    mkbootimg:system/core/mkbootimg \
     opengl-tests-includes:frameworks/native/opengl/tests/include \
+    recovery:bootable/recovery \
     system-core:system/core/include \
     audio:system/media/audio/include \
     audio-effects:system/media/audio_effects/include \
@@ -62,41 +63,11 @@ define include-path-for
 $(foreach n,$(1),$(patsubst $(n):%,%,$(filter $(n):%,$(pathmap_INCL))))
 endef
 
-# Enter project path into pathmap
-#
-# $(1): name
-# $(2): path
-#
-define project-set-path
-$(eval pathmap_PROJ += $(1):$(2))
-endef
-
-# Enter variant project path into pathmap
-#
-# $(1): name
-# $(2): variable to check
-# $(3): base path
-#
-define project-set-path-variant
-    $(call project-set-path,$(1),$(strip \
-        $(if $($(2)), \
-            $(3)-$($(2)), \
-            $(3))))
-endef
-
-# Returns the path to the requested module's include directory,
-# relative to the root of the source tree.
-#
-# $(1): a list of modules (or other named entities) to find the projects for
-define project-path-for
-$(foreach n,$(1),$(patsubst $(n):%,%,$(filter $(n):%,$(pathmap_PROJ))))
-endef
-
 #
 # Many modules expect to be able to say "#include <jni.h>",
 # so make it easy for them to find the correct path.
 #
-JNI_H_INCLUDE := $(call include-path-for,libnativehelper)/nativehelper
+JNI_H_INCLUDE := libnativehelper/include/nativehelper
 
 #
 # A list of all source roots under frameworks/base, which will be

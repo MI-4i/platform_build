@@ -166,17 +166,15 @@ endif # need_compile_res
 endif # !custom
 LOCAL_PROGUARD_FLAGS := $(addprefix -include ,$(proguard_options_file)) $(LOCAL_PROGUARD_FLAGS)
 
-ifdef LOCAL_JACK_ENABLED
 ifndef LOCAL_JACK_PROGUARD_FLAGS
     LOCAL_JACK_PROGUARD_FLAGS := $(LOCAL_PROGUARD_FLAGS)
 endif
 LOCAL_JACK_PROGUARD_FLAGS := $(addprefix -include ,$(proguard_options_file)) $(LOCAL_JACK_PROGUARD_FLAGS)
-endif # LOCAL_JACK_ENABLED
 
 ifeq (true,$(EMMA_INSTRUMENT))
 ifndef LOCAL_EMMA_INSTRUMENT
 # No emma for test apks.
-ifeq (,$(filer tests,$(LOCAL_MODULE_TAGS))$(LOCAL_INSTRUMENTATION_FOR))
+ifeq (,$(LOCAL_INSTRUMENTATION_FOR))
 LOCAL_EMMA_INSTRUMENT := true
 endif # No test apk
 endif # LOCAL_EMMA_INSTRUMENT is not set
@@ -184,23 +182,35 @@ else
 LOCAL_EMMA_INSTRUMENT := false
 endif # EMMA_INSTRUMENT is true
 
+ifneq ($(LOCAL_SRC_FILES)$(LOCAL_STATIC_JAVA_LIBRARIES)$(LOCAL_SOURCE_FILES_ALL_GENERATED),)
+# Only add jacocoagent if the package contains some java code
 ifeq (true,$(LOCAL_EMMA_INSTRUMENT))
 ifeq (true,$(EMMA_INSTRUMENT_STATIC))
-LOCAL_STATIC_JAVA_LIBRARIES += emma
-else
+# Jack supports coverage with Jacoco
+LOCAL_STATIC_JAVA_LIBRARIES += jacocoagent
+else  # ! EMMA_INSTRUMENT_STATIC
 ifdef LOCAL_SDK_VERSION
 ifdef TARGET_BUILD_APPS
-# In unbundled build merge the emma library into the apk.
-LOCAL_STATIC_JAVA_LIBRARIES += emma
-else
-# If build against the SDK in full build, core.jar is not used,
-# we have to use prebiult emma.jar to make Proguard happy;
-# Otherwise emma classes are included in core.jar.
-LOCAL_PROGUARD_FLAGS += -libraryjars $(EMMA_JAR)
-endif # full build
+# In unbundled build, merge the coverage library into the apk.
+# Jack supports coverage with Jacoco
+LOCAL_STATIC_JAVA_LIBRARIES += jacocoagent
+# Exclude jacoco classes from proguard
+LOCAL_PROGUARD_FLAGS += -include $(BUILD_SYSTEM)/proguard.jacoco.flags
+LOCAL_JACK_PROGUARD_FLAGS += -include $(BUILD_SYSTEM)/proguard.jacoco.flags
+else # ! TARGET_BUILD_APPS
+# If build against the SDK in full build, core.jar is not used
+# so coverage classes are not present.
+# Jack needs jacoco on the classpath but we do not want it to be in
+# the final apk. While it is a static library, we add it to the
+# LOCAL_JAVA_LIBRARIES which are only present on the classpath.
+# Note: we have nothing to do for proguard since jacoco will be
+# on the classpath only, thus not modified during the compilation.
+LOCAL_JAVA_LIBRARIES += jacocoagent
+endif # TARGET_BUILD_APPS
 endif # LOCAL_SDK_VERSION
-endif # EMMA_INSTRUMENT_STATIC
+endif # ! EMMA_INSTRUMENT_STATIC
 endif # LOCAL_EMMA_INSTRUMENT
+endif # Contains java code
 
 rs_compatibility_jni_libs :=
 
@@ -241,7 +251,7 @@ $(R_file_stamp): PRIVATE_RESOURCE_PUBLICS_OUTPUT := \
 $(R_file_stamp): PRIVATE_PROGUARD_OPTIONS_FILE := $(proguard_options_file)
 $(R_file_stamp): $(all_res_assets) $(full_android_manifest) $(RenderScript_file_stamp) $(AAPT) | $(ACP)
 	@echo "target R.java/Manifest.java: $(PRIVATE_MODULE) ($@)"
-	@rm -f $@
+	@rm -rf $@ && mkdir -p $(dir $@)
 	$(create-resource-java-files)
 	$(hide) for GENERATED_MANIFEST_FILE in `find $(PRIVATE_SOURCE_INTERMEDIATES_DIR) \
 					-name Manifest.java 2> /dev/null`; do \
@@ -256,7 +266,10 @@ $(R_file_stamp): $(all_res_assets) $(full_android_manifest) $(RenderScript_file_
 		$(ACP) -fp $$GENERATED_R_FILE $(TARGET_COMMON_OUT_ROOT)/R/$$dir \
 			|| exit 31; \
 		$(ACP) -fp $$GENERATED_R_FILE $@ || exit 32; \
-	done; \
+	done;
+	@# Ensure that the target file is always created, i.e. also in case we did not
+	@# enter the GENERATED_R_FILE-loop above. This avoids unnecessary rebuilding.
+	$(hide) touch $@
 
 $(proguard_options_file): $(R_file_stamp)
 
@@ -278,29 +291,13 @@ $(resource_export_package): $(all_res_assets) $(full_android_manifest) $(RenderS
 	$(add-assets-to-package)
 endif
 
+# Make sure to generate R.java before compiling.
 # Other modules should depend on the BUILT module if
 # they want to use this module's R.java file.
-$(LOCAL_BUILT_MODULE): $(R_file_stamp)
-
-ifdef LOCAL_JACK_ENABLED
-ifneq ($(built_dex_intermediate),)
-$(built_dex_intermediate): $(R_file_stamp)
-endif
-ifneq ($(noshrob_classes_jack),)
-$(noshrob_classes_jack): $(R_file_stamp)
-endif
-ifneq ($(full_classes_jack),)
-$(full_classes_jack): $(R_file_stamp)
-endif
-endif # LOCAL_JACK_ENABLED
-
-ifneq ($(full_classes_jar),)
-# If full_classes_jar is non-empty, we're building sources.
-# If we're building sources, the initial javac step (which
-# produces full_classes_compiled_jar) needs to ensure the
-# R.java and Manifest.java files have been generated first.
-$(full_classes_compiled_jar): $(R_file_stamp)
-endif
+$(LOCAL_BUILT_MODULE) \
+$(full_classes_compiled_jar) \
+$(built_dex_intermediate) $(noshrob_classes_jack) $(full_classes_jack) $(jack_check_timestamp) \
+  :  $(R_file_stamp)
 
 endif  # need_compile_res
 
@@ -343,12 +340,9 @@ endif # LOCAL_NO_STANDARD_LIBRARIES
 
 ifneq ($(full_classes_jar),)
 $(LOCAL_BUILT_MODULE): PRIVATE_DEX_FILE := $(built_dex)
-# Use the jarjar processed arhive as the initial package file.
-$(LOCAL_BUILT_MODULE): PRIVATE_SOURCE_ARCHIVE := $(full_classes_jarjar_jar)
 $(LOCAL_BUILT_MODULE): $(built_dex)
 else
 $(LOCAL_BUILT_MODULE): PRIVATE_DEX_FILE :=
-$(LOCAL_BUILT_MODULE): PRIVATE_SOURCE_ARCHIVE :=
 endif # full_classes_jar
 
 include $(BUILD_SYSTEM)/install_jni_libs.mk
@@ -387,7 +381,7 @@ $(LOCAL_BUILT_MODULE): PRIVATE_ADDITIONAL_CERTIFICATES := $(foreach c,\
     $(LOCAL_ADDITIONAL_CERTIFICATES), $(c).x509.pem $(c).pk8)
 
 # Define the rule to build the actual package.
-$(LOCAL_BUILT_MODULE): $(AAPT) | $(ZIPALIGN)
+$(LOCAL_BUILT_MODULE): $(AAPT)
 # PRIVATE_JNI_SHARED_LIBRARIES is a list of <abi>:<path_of_built_lib>.
 $(LOCAL_BUILT_MODULE): PRIVATE_JNI_SHARED_LIBRARIES := $(jni_shared_libraries_with_abis)
 # PRIVATE_JNI_SHARED_LIBRARIES_ABI is a list of ABI names.
@@ -407,16 +401,9 @@ else
     $(LOCAL_BUILT_MODULE): PRIVATE_PRODUCT_AAPT_PREF_CONFIG := $(PRODUCT_AAPT_PREF_CONFIG)
 endif
 endif
-$(LOCAL_BUILT_MODULE): PRIVATE_DONT_DELETE_JAR_DIRS := $(LOCAL_DONT_DELETE_JAR_DIRS)
 $(LOCAL_BUILT_MODULE): $(all_res_assets) $(jni_shared_libraries) $(full_android_manifest)
 	@echo "target Package: $(PRIVATE_MODULE) ($@)"
-ifdef LOCAL_JACK_ENABLED
 	$(create-empty-package)
-else
-	$(if $(PRIVATE_SOURCE_ARCHIVE),\
-	  $(call initialize-package-file,$(PRIVATE_SOURCE_ARCHIVE),$@),\
-	  $(create-empty-package))
-endif
 	$(add-assets-to-package)
 ifneq ($(jni_shared_libraries),)
 	$(add-jni-shared-libs-to-package)
@@ -424,20 +411,20 @@ endif
 ifeq ($(full_classes_jar),)
 # We don't build jar, need to add the Java resources here.
 	$(if $(PRIVATE_EXTRA_JAR_ARGS),$(call add-java-resources-to,$@))
-else
+else  # full_classes_jar
 	$(add-dex-to-package)
-endif
-ifdef LOCAL_JACK_ENABLED
+endif  # full_classes_jar
 	$(add-carried-jack-resources)
-endif
 ifdef LOCAL_DEX_PREOPT
+ifneq ($(BUILD_PLATFORM_ZIP),)
+	@# Keep a copy of apk with classes.dex unstripped
+	$(hide) cp -f $@ $(dir $@)package.dex.apk
+endif  # BUILD_PLATFORM_ZIP
 ifneq (nostripping,$(LOCAL_DEX_PREOPT))
 	$(call dexpreopt-remove-classes.dex,$@)
 endif
 endif
 	$(sign-package)
-	@# Alignment must happen after all other zip operations.
-	$(align-package)
 
 ###############################
 ## Build dpi-specific apks, if it's apps_only build.
@@ -472,7 +459,7 @@ built_apk_splits := $(foreach s,$(my_split_suffixes),$(built_module_path)/packag
 installed_apk_splits := $(foreach s,$(my_split_suffixes),$(my_module_path)/$(LOCAL_MODULE)_$(s).apk)
 
 # The splits should have been built in the same command building the base apk.
-# This rule just runs signing and zipalign etc.
+# This rule just runs signing.
 # Note that we explicily check the existence of the split apk and remove the
 # built base apk if the split apk isn't there.
 # That way the build system will rerun the aapt after the user changes the splitting parameters.
@@ -484,10 +471,9 @@ $(built_apk_splits) : $(built_module_path)/%.apk : $(LOCAL_BUILT_MODULE)
 	  rm $<; exit 1; \
 	fi
 	$(sign-package)
-	$(align-package)
 
 # Rules to install the splits
-$(installed_apk_splits) : $(my_module_path)/$(LOCAL_MODULE)_%.apk : $(built_module_path)/package_%.apk | $(ACP)
+$(installed_apk_splits) : $(my_module_path)/$(LOCAL_MODULE)_%.apk : $(built_module_path)/package_%.apk
 	@echo "Install: $@"
 	$(copy-file-to-new-target)
 
@@ -508,39 +494,6 @@ PACKAGES.$(LOCAL_PACKAGE_NAME).RESOURCE_OVERLAYS := $(package_resource_overlays)
 endif
 
 PACKAGES := $(PACKAGES) $(LOCAL_PACKAGE_NAME)
-
-# Dist the files that can be bundled in system.img.
-# They include the jni shared libraries and the apk with jni libraries stripped.
-ifeq ($(LOCAL_DIST_BUNDLED_BINARIES),true)
-ifneq ($(filter $(LOCAL_PACKAGE_NAME),$(TARGET_BUILD_APPS)),)
-ifneq ($(strip $(jni_shared_libraries)),)
-dist_subdir := bundled_$(LOCAL_PACKAGE_NAME)
-$(foreach f, $(jni_shared_libraries), \
-  $(call dist-for-goals, apps_only, $(f):$(dist_subdir)/$(notdir $(f))))
-
-apk_jni_stripped := $(intermediates)/jni_stripped/package.apk
-$(apk_jni_stripped): PRIVATE_JNI_SHARED_LIBRARIES := $(notdir $(jni_shared_libraries))
-$(apk_jni_stripped) : $(LOCAL_BUILT_MODULE) | $(ZIPALIGN)
-	@rm -rf $(dir $@) && mkdir -p $(dir $@)
-	$(hide) cp $< $@
-	$(hide) zip -d $@ $(foreach f,$(PRIVATE_JNI_SHARED_LIBRARIES),\*/$(f))
-	$(align-package)
-
-$(call dist-for-goals, apps_only, $(apk_jni_stripped):$(dist_subdir)/$(LOCAL_PACKAGE_NAME).apk)
-
-endif  # jni_shared_libraries
-endif  # apps_only build
-endif  # LOCAL_DIST_BUNDLED_BINARIES
-
-# Lint phony targets
-.PHONY: lint-$(LOCAL_PACKAGE_NAME)
-lint-$(LOCAL_PACKAGE_NAME): PRIVATE_PATH := $(LOCAL_PATH)
-lint-$(LOCAL_PACKAGE_NAME): PRIVATE_LINT_FLAGS := $(LOCAL_LINT_FLAGS)
-lint-$(LOCAL_PACKAGE_NAME) :
-	@echo lint $(PRIVATE_PATH)
-	$(LINT) $(PRIVATE_LINT_FLAGS) $(PRIVATE_PATH)
-
-lintall : lint-$(LOCAL_PACKAGE_NAME)
 
 endif # skip_definition
 

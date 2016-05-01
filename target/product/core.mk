@@ -22,7 +22,8 @@
 
 PRODUCT_PACKAGES += \
     BasicDreams \
-    Browser \
+    BookmarkProvider \
+    Browser2 \
     Calendar \
     CalendarProvider \
     CaptivePortalLogin \
@@ -38,7 +39,8 @@ PRODUCT_PACKAGES += \
     InputDevices \
     KeyChain \
     Keyguard \
-    Launcher3 \
+    LatinIME \
+    Launcher2 \
     ManagedProvisioning \
     PicoTts \
     PacProcessor \

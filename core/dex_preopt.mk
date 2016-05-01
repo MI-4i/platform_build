@@ -19,6 +19,12 @@ DEXPREOPT_BOOT_JAR_DIR_FULL_PATH := $(DEXPREOPT_PRODUCT_DIR_FULL_PATH)/$(DEXPREO
 # The default value for LOCAL_DEX_PREOPT
 DEX_PREOPT_DEFAULT ?= true
 
+GLOBAL_DEXPREOPT_FLAGS :=
+ifeq ($(WITH_DEXPREOPT_PIC),true)
+# Compile boot.oat as position-independent code if WITH_DEXPREOPT_PIC=true
+GLOBAL_DEXPREOPT_FLAGS += --compile-pic
+endif
+
 # $(1): the .jar or .apk to remove classes.dex
 define dexpreopt-remove-classes.dex
 $(hide) zip --quiet --delete $(1) classes.dex; \
@@ -35,7 +41,7 @@ define _dexpreopt-boot-jar-remove-classes.dex
 _dbj_jar_no_dex := $(DEXPREOPT_BOOT_JAR_DIR_FULL_PATH)/$(1)_nodex.jar
 _dbj_src_jar := $(call intermediates-dir-for,JAVA_LIBRARIES,$(1),,COMMON)/javalib.jar
 
-$$(_dbj_jar_no_dex) : $$(_dbj_src_jar) | $(ACP) $(AAPT)
+$$(_dbj_jar_no_dex) : $$(_dbj_src_jar)
 	$$(call copy-file-to-target)
 ifneq ($(DEX_PREOPT_DEFAULT),nostripping)
 	$$(call dexpreopt-remove-classes.dex,$$@)

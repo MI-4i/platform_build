@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 # This file uses the following encoding: utf-8
 
-from __future__ import print_function
-
 import sys
 import re
 
 if len(sys.argv) == 1:
-    print('usage: ' + sys.argv[0] + ' <build.log>')
+    print 'usage: ' + sys.argv[0] + ' <build.log>'
     sys.exit()
 
 # if you add another level, don't forget to give it a color below
@@ -18,7 +16,8 @@ class severity:
     HIGH=2
     MEDIUM=3
     LOW=4
-    HARMLESS=5
+    TIDY=5
+    HARMLESS=6
 
 def colorforseverity(sev):
     if sev == severity.FIXMENOW:
@@ -29,11 +28,30 @@ def colorforseverity(sev):
         return 'orange'
     if sev == severity.LOW:
         return 'yellow'
+    if sev == severity.TIDY:
+        return 'peachpuff'
     if sev == severity.HARMLESS:
         return 'limegreen'
     if sev == severity.UNKNOWN:
-        return 'blue'
+        return 'lightblue'
     return 'grey'
+
+def headerforseverity(sev):
+    if sev == severity.FIXMENOW:
+        return 'Critical warnings, fix me now'
+    if sev == severity.HIGH:
+        return 'High severity warnings'
+    if sev == severity.MEDIUM:
+        return 'Medium severity warnings'
+    if sev == severity.LOW:
+        return 'Low severity warnings'
+    if sev == severity.HARMLESS:
+        return 'Harmless warnings'
+    if sev == severity.TIDY:
+        return 'Clang-Tidy warnings'
+    if sev == severity.UNKNOWN:
+        return 'Unknown warnings'
+    return 'Unhandled warnings'
 
 warnpatterns = [
     { 'category':'make',    'severity':severity.MEDIUM,   'members':[], 'option':'',
@@ -48,9 +66,35 @@ warnpatterns = [
         'patterns':[r".*: warning: conflicting types for '.+'"] },
     { 'category':'C/C++',   'severity':severity.HIGH,     'members':[], 'option':'-Wtype-limits',
         'description':'Expression always evaluates to true or false',
-        'patterns':[r".*: warning: comparison is always false due to limited range of data type",
-                    r".*: warning: comparison of unsigned expression >= 0 is always true",
-                    r".*: warning: comparison of unsigned expression < 0 is always false"] },
+        'patterns':[r".*: warning: comparison is always .+ due to limited range of data type",
+                    r".*: warning: comparison of unsigned .*expression .+ is always true",
+                    r".*: warning: comparison of unsigned .*expression .+ is always false"] },
+    { 'category':'C/C++',   'severity':severity.HIGH,     'members':[], 'option':'',
+        'description':'Potential leak of memory, bad free, use after free',
+        'patterns':[r".*: warning: Potential leak of memory",
+                    r".*: warning: Potential memory leak",
+                    r".*: warning: Memory allocated by .+ should be deallocated by .+ not .+",
+                    r".*: warning: 'delete' applied to a pointer that was allocated",
+                    r".*: warning: Use of memory after it is freed",
+                    r".*: warning: Argument to .+ is the address of .+ variable",
+                    r".*: warning: Argument to free\(\) is offset by .+ of memory allocated by",
+                    r".*: warning: Attempt to .+ released memory"] },
+    { 'category':'C/C++',   'severity':severity.HIGH,     'members':[], 'option':'',
+        'description':'Return address of stack memory',
+        'patterns':[r".*: warning: Address of stack memory .+ returned to caller",
+                    r".*: warning: Address of stack memory .+ will be a dangling reference"] },
+    { 'category':'C/C++',   'severity':severity.HIGH,     'members':[], 'option':'',
+        'description':'Problem with vfork',
+        'patterns':[r".*: warning: This .+ is prohibited after a successful vfork",
+                    r".*: warning: Call to function 'vfork' is insecure "] },
+    { 'category':'C/C++',   'severity':severity.HIGH,     'members':[], 'option':'infinite-recursion',
+        'description':'Infinite recursion',
+        'patterns':[r".*: warning: all paths through this function will call itself"] },
+    { 'category':'C/C++',   'severity':severity.HIGH,     'members':[], 'option':'',
+        'description':'Potential buffer overflow',
+        'patterns':[r".*: warning: Size argument is greater than .+ the destination buffer",
+                    r".*: warning: Potential buffer overflow.",
+                    r".*: warning: String copy function overflows destination buffer"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'',
         'description':'Incompatible pointer types',
         'patterns':[r".*: warning: assignment from incompatible pointer type",
@@ -66,10 +110,16 @@ warnpatterns = [
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wunused',
         'description':'Unused function, variable or label',
         'patterns':[r".*: warning: '.+' defined but not used",
+                    r".*: warning: unused function '.+'",
+                    r".*: warning: private field '.+' is not used",
                     r".*: warning: unused variable '.+'"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wunused-value',
-        'description':'Statement with no effect',
-        'patterns':[r".*: warning: statement with no effect"] },
+        'description':'Statement with no effect or result unused',
+        'patterns':[r".*: warning: statement with no effect",
+                    r".*: warning: expression result unused"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wunused-result',
+        'description':'Ignoreing return value of function',
+        'patterns':[r".*: warning: ignoring return value of function .+Wunused-result"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wmissing-field-initializers',
         'description':'Missing initializer',
         'patterns':[r".*: warning: missing initializer"] },
@@ -78,10 +128,19 @@ warnpatterns = [
         'patterns':[r".*: warning: \(near initialization for '.+'\)"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wformat',
         'description':'Format string does not match arguments',
-        'patterns':[r".*: warning: format '.+' expects type '.+', but argument [0-9]+ has type '.+'"] },
+        'patterns':[r".*: warning: format '.+' expects type '.+', but argument [0-9]+ has type '.+'",
+                    r".*: warning: more '%' conversions than data arguments",
+                    r".*: warning: data argument not used by format string",
+                    r".*: warning: incomplete format specifier",
+                    r".*: warning: format .+ expects .+ but argument .+Wformat=",
+                    r".*: warning: field precision should have .+ but argument has .+Wformat",
+                    r".*: warning: format specifies type .+ but the argument has .*type .+Wformat"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wformat-extra-args',
         'description':'Too many arguments for format string',
         'patterns':[r".*: warning: too many arguments for format"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wformat-invalid-specifier',
+        'description':'Invalid format specifier',
+        'patterns':[r".*: warning: invalid .+ specifier '.+'.+format-invalid-specifier"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wsign-compare',
         'description':'Comparison between signed and unsigned',
         'patterns':[r".*: warning: comparison between signed and unsigned",
@@ -106,6 +165,8 @@ warnpatterns = [
         'description':'Qualifier discarded',
         'patterns':[r".*: warning: passing argument [0-9]+ of '.+' discards qualifiers from pointer target type",
                     r".*: warning: assignment discards qualifiers from pointer target type",
+                    r".*: warning: passing .+ to parameter of type .+ discards qualifiers",
+                    r".*: warning: assigning to .+ from .+ discards qualifiers",
                     r".*: warning: return discards qualifiers from pointer target type"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wattributes',
         'description':'Attribute ignored',
@@ -127,7 +188,8 @@ warnpatterns = [
         'patterns':[r".*: warning: '.+' may be used uninitialized in this function"] },
     { 'category':'C/C++',   'severity':severity.HIGH,     'members':[], 'option':'-Wuninitialized',
         'description':'Variable is used uninitialized',
-        'patterns':[r".*: warning: '.+' is used uninitialized in this function"] },
+        'patterns':[r".*: warning: '.+' is used uninitialized in this function",
+                    r".*: warning: variable '.+' is uninitialized when used here"] },
     { 'category':'ld',      'severity':severity.MEDIUM,   'members':[], 'option':'-fshort-enums',
         'description':'ld: possible enum size mismatch',
         'patterns':[r".*: warning: .* uses variable-size enums yet the output is to use 32-bit enums; use of enum values across objects may fail"] },
@@ -151,6 +213,9 @@ warnpatterns = [
         'patterns':[r".*: warning: suggest explicit braces to avoid ambiguous 'else'",
                     r".*: warning: suggest parentheses around arithmetic in operand of '.+'",
                     r".*: warning: suggest parentheses around comparison in operand of '.+'",
+                    r".*: warning: logical not is only applied to the left hand side of this comparison",
+                    r".*: warning: using the result of an assignment as a condition without parentheses",
+                    r".*: warning: .+ has lower precedence than .+ be evaluated first .+Wparentheses",
                     r".*: warning: suggest parentheses around '.+?' .+ '.+?'",
                     r".*: warning: suggest parentheses around assignment used as truth value"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'',
@@ -159,6 +224,16 @@ warnpatterns = [
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wimplicit int',
         'description':'No type or storage class (will default to int)',
         'patterns':[r".*: warning: data definition has no type or storage class"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'',
+        'description':'Null pointer',
+        'patterns':[r".*: warning: Dereference of null pointer",
+                    r".*: warning: Called .+ pointer is null",
+                    r".*: warning: Forming reference to null pointer",
+                    r".*: warning: Returning null reference",
+                    r".*: warning: Null pointer passed as an argument to a 'nonnull' parameter",
+                    r".*: warning: .+ results in a null pointer dereference",
+                    r".*: warning: Access to .+ results in a dereference of a null pointer",
+                    r".*: warning: Null pointer argument in"] },
     { 'category':'cont.',   'severity':severity.SKIP,     'members':[], 'option':'',
         'description':'',
         'patterns':[r".*: warning: type defaults to 'int' in declaration of '.+'"] },
@@ -215,13 +290,19 @@ warnpatterns = [
         'patterns':[r".*: warning: previous declaration of '.+' was here"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wswitch-enum',
         'description':'Enum value not handled in switch',
-        'patterns':[r".*: warning: enumeration value '.+' not handled in switch"] },
+        'patterns':[r".*: warning: .*enumeration value.* not handled in switch.+Wswitch"] },
     { 'category':'java',    'severity':severity.MEDIUM,   'members':[], 'option':'-encoding',
         'description':'Java: Non-ascii characters used, but ascii encoding specified',
         'patterns':[r".*: warning: unmappable character for encoding ascii"] },
     { 'category':'java',    'severity':severity.MEDIUM,   'members':[], 'option':'',
         'description':'Java: Non-varargs call of varargs method with inexact argument type for last parameter',
         'patterns':[r".*: warning: non-varargs call of varargs method with inexact argument type for last parameter"] },
+    { 'category':'java',    'severity':severity.MEDIUM,   'members':[], 'option':'',
+        'description':'Java: Unchecked method invocation',
+        'patterns':[r".*: warning: \[unchecked\] unchecked method invocation: .+ in class .+"] },
+    { 'category':'java',    'severity':severity.MEDIUM,   'members':[], 'option':'',
+        'description':'Java: Unchecked conversion',
+        'patterns':[r".*: warning: \[unchecked\] unchecked conversion"] },
     { 'category':'aapt',    'severity':severity.MEDIUM,   'members':[], 'option':'',
         'description':'aapt: No default translation',
         'patterns':[r".*: warning: string '.+' has no default translation in .*"] },
@@ -243,7 +324,11 @@ warnpatterns = [
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Warray-bounds',
         'description':'Array subscript out of bounds',
         'patterns':[r".*: warning: array subscript is above array bounds",
+                    r".*: warning: Array subscript is undefined",
                     r".*: warning: array subscript is below array bounds"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'',
+        'description':'Excess elements in initializer',
+        'patterns':[r".*: warning: excess elements in .+ initializer"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'',
         'description':'Decimal constant is unsigned only in ISO C90',
         'patterns':[r".*: warning: this decimal constant is unsigned only in ISO C90"] },
@@ -261,7 +346,7 @@ warnpatterns = [
         'patterns':[r".*: warning: attempt to free a non-heap object '.+'"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wchar-subscripts',
         'description':'Array subscript has type char',
-        'patterns':[r".*: warning: array subscript has type 'char'"] },
+        'patterns':[r".*: warning: array subscript .+ type 'char'.+Wchar-subscripts"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'',
         'description':'Constant too large for type',
         'patterns':[r".*: warning: integer constant is too large for '.+' type"] },
@@ -276,7 +361,8 @@ warnpatterns = [
         'patterns':[r".*: warning: declaration 'class .+' does not declare anything"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wreorder',
         'description':'Initialization order will be different',
-        'patterns':[r".*: warning: '.+' will be initialized after"] },
+        'patterns':[r".*: warning: '.+' will be initialized after",
+                    r".*: warning: field .+ will be initialized after .+Wreorder"] },
     { 'category':'cont.',   'severity':severity.SKIP,     'members':[], 'option':'',
         'description':'',
         'patterns':[r".*: warning:   '.+'"] },
@@ -309,7 +395,8 @@ warnpatterns = [
         'patterns':[r".*: warning: function declaration isn't a prototype"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wignored-qualifiers',
         'description':'Type qualifiers ignored on function return value',
-        'patterns':[r".*: warning: type qualifiers ignored on function return type"] },
+        'patterns':[r".*: warning: type qualifiers ignored on function return type",
+                    r".*: warning: .+ type qualifier .+ has no effect .+Wignored-qualifiers"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'',
         'description':'&lt;foo&gt; declared inside parameter list, scope limited to this definition',
         'patterns':[r".*: warning: '.+' declared inside parameter list"] },
@@ -322,12 +409,24 @@ warnpatterns = [
     { 'category':'C/C++',   'severity':severity.LOW,      'members':[], 'option':'-Wcomment',
         'description':'Comment inside comment',
         'patterns':[r".*: warning: "".+"" within comment"] },
+    { 'category':'C/C++',   'severity':severity.LOW,      'members':[], 'option':'',
+        'description':'Value stored is never read',
+        'patterns':[r".*: warning: Value stored to .+ is never read"] },
+    { 'category':'C/C++',   'severity':severity.LOW,      'members':[], 'option':'-Wdeprecated-declarations',
+        'description':'Deprecated declarations',
+        'patterns':[r".*: warning: .+ is deprecated.+deprecated-declarations"] },
+    { 'category':'C/C++',   'severity':severity.LOW,      'members':[], 'option':'-Wdeprecated-register',
+        'description':'Deprecated register',
+        'patterns':[r".*: warning: 'register' storage class specifier is deprecated"] },
+    { 'category':'C/C++',   'severity':severity.LOW,      'members':[], 'option':'-Wpointer-sign',
+        'description':'Converts between pointers to integer types with different sign',
+        'patterns':[r".*: warning: .+ converts between pointers to integer types with different sign"] },
     { 'category':'C/C++',   'severity':severity.HARMLESS, 'members':[], 'option':'',
         'description':'Extra tokens after #endif',
         'patterns':[r".*: warning: extra tokens at end of #endif directive"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wenum-compare',
         'description':'Comparison between different enums',
-        'patterns':[r".*: warning: comparison between 'enum .+' and 'enum .+'"] },
+        'patterns':[r".*: warning: comparison between '.+' and '.+'.+Wenum-compare"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wconversion',
         'description':'Implicit conversion of negative number to unsigned type',
         'patterns':[r".*: warning: converting negative value '.+' to '.+'"] },
@@ -344,9 +443,13 @@ warnpatterns = [
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wctor-dtor-privacy',
         'description':'Class seems unusable because of private ctor/dtor' ,
         'patterns':[r".*: warning: 'class .+' only defines private constructors and has no friends"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wgnu-static-float-init',
+        'description':'In-class initializer for static const float/double' ,
+        'patterns':[r".*: warning: in-class initializer for static data member of .+const (float|double)"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wpointer-arith',
         'description':'void* used in arithmetic' ,
         'patterns':[r".*: warning: pointer of type 'void \*' used in (arithmetic|subtraction)",
+                    r".*: warning: arithmetic on .+ to void is a GNU extension.*Wpointer-arith",
                     r".*: warning: wrong type argument to increment"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wsign-promo',
         'description':'Overload resolution chose to promote from unsigned or enum to signed type' ,
@@ -361,23 +464,159 @@ warnpatterns = [
         'description':'Converting from <type> to <other type>',
         'patterns':[r".*: warning: converting to '.+' from '.+'"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
+        'description':'VLA has zero or negative size',
+        'patterns':[r".*: warning: Declared variable-length array \(VLA\) has .+ size"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
         'description':'Return value from void function',
         'patterns':[r".*: warning: 'return' with a value, in function returning void"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'multichar',
+        'description':'Multi-character character constant',
+        'patterns':[r".*: warning: multi-character character constant"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'writable-strings',
+        'description':'Conversion from string literal to char*',
+        'patterns':[r".*: warning: .+ does not allow conversion from string literal to 'char \*'"] },
     { 'category':'C/C++',   'severity':severity.LOW,     'members':[], 'option':'',
         'description':'Useless specifier',
         'patterns':[r".*: warning: useless storage class specifier in empty declaration"] },
+    { 'category':'C/C++',   'severity':severity.LOW,     'members':[], 'option':'-Wduplicate-decl-specifier',
+        'description':'Duplicate declaration specifier',
+        'patterns':[r".*: warning: duplicate '.+' declaration specifier"] },
     { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'',
         'description':'Duplicate logtag',
-        'patterns':[r".*: warning: tag "".+"" \(None\) duplicated in .+"] },
+        'patterns':[r".*: warning: tag \".+\" \(.+\) duplicated in .+"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'typedef-redefinition',
+        'description':'Typedef redefinition',
+        'patterns':[r".*: warning: redefinition of typedef '.+' is a C11 feature"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'gnu-designator',
+        'description':'GNU old-style field designator',
+        'patterns':[r".*: warning: use of GNU old-style field designator extension"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'missing-field-initializers',
+        'description':'Missing field initializers',
+        'patterns':[r".*: warning: missing field '.+' initializer"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'missing-braces',
+        'description':'Missing braces',
+        'patterns':[r".*: warning: suggest braces around initialization of",
+                    r".*: warning: too many braces around scalar initializer .+Wmany-braces-around-scalar-init",
+                    r".*: warning: braces around scalar initializer"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'sign-compare',
+        'description':'Comparison of integers of different signs',
+        'patterns':[r".*: warning: comparison of integers of different signs.+sign-compare"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'dangling-else',
+        'description':'Add braces to avoid dangling else',
+        'patterns':[r".*: warning: add explicit braces to avoid dangling else"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'initializer-overrides',
+        'description':'Initializer overrides prior initialization',
+        'patterns':[r".*: warning: initializer overrides prior initialization of this subobject"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'self-assign',
+        'description':'Assigning value to self',
+        'patterns':[r".*: warning: explicitly assigning value of .+ to itself"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'gnu-variable-sized-type-not-at-end',
+        'description':'GNU extension, variable sized type not at end',
+        'patterns':[r".*: warning: field '.+' with variable sized type '.+' not at the end of a struct or class"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'tautological-constant-out-of-range-compare',
+        'description':'Comparison of constant is always false/true',
+        'patterns':[r".*: comparison of .+ is always .+Wtautological-constant-out-of-range-compare"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'overloaded-virtual',
+        'description':'Hides overloaded virtual function',
+        'patterns':[r".*: '.+' hides overloaded virtual function"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'incompatible-pointer-types',
+        'description':'Incompatible pointer types',
+        'patterns':[r".*: warning: incompatible pointer types .+Wincompatible-pointer-types"] },
+    { 'category':'logtags',   'severity':severity.LOW,     'members':[], 'option':'asm-operand-widths',
+        'description':'ASM value size does not match register size',
+        'patterns':[r".*: warning: value size does not match register size specified by the constraint and modifier"] },
+    { 'category':'C/C++',   'severity':severity.LOW,     'members':[], 'option':'literal-suffix',
+        'description':'Needs a space between literal and string macro',
+        'patterns':[r".*: warning: invalid suffix on literal.+ requires a space .+Wliteral-suffix"] },
+    { 'category':'C/C++',   'severity':severity.LOW,     'members':[], 'option':'#warnings',
+        'description':'Warnings from #warning',
+        'patterns':[r".*: warning: .+-W#warnings"] },
+    { 'category':'C/C++',   'severity':severity.LOW,     'members':[], 'option':'absolute-value',
+        'description':'Using float/int absolute value function with int/float argument',
+        'patterns':[r".*: warning: using .+ absolute value function .+ when argument is .+ type .+Wabsolute-value"] },
+    { 'category':'C/C++',   'severity':severity.LOW,     'members':[], 'option':'',
+        'description':'Refers to implicitly defined namespace',
+        'patterns':[r".*: warning: using directive refers to implicitly-defined namespace .+"] },
+    { 'category':'C/C++',   'severity':severity.LOW,     'members':[], 'option':'-Winvalid-pp-token',
+        'description':'Invalid pp token',
+        'patterns':[r".*: warning: missing .+Winvalid-pp-token"] },
+
     { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
         'description':'Operator new returns NULL',
         'patterns':[r".*: warning: 'operator new' must not return NULL unless it is declared 'throw\(\)' .+"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
         'description':'NULL used in arithmetic',
         'patterns':[r".*: warning: NULL used in arithmetic"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'header-guard',
+        'description':'Misspelled header guard',
+        'patterns':[r".*: warning: '.+' is used as a header guard .+ followed by .+ different macro"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'empty-body',
+        'description':'Empty loop body',
+        'patterns':[r".*: warning: .+ loop has empty body"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'enum-conversion',
+        'description':'Implicit conversion from enumeration type',
+        'patterns':[r".*: warning: implicit conversion from enumeration type '.+'"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'switch',
+        'description':'case value not in enumerated type',
+        'patterns':[r".*: warning: case value not in enumerated type '.+'"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
+        'description':'Undefined result',
+        'patterns':[r".*: warning: The result of .+ is undefined",
+                    r".*: warning: 'this' pointer cannot be null in well-defined C\+\+ code;",
+                    r".*: warning: shifting a negative signed value is undefined"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
+        'description':'Division by zero',
+        'patterns':[r".*: warning: Division by zero"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
         'description':'Use of deprecated method',
         'patterns':[r".*: warning: '.+' is deprecated .+"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
+        'description':'Use of garbage or uninitialized value',
+        'patterns':[r".*: warning: .+ is a garbage value",
+                    r".*: warning: Function call argument is an uninitialized value",
+                    r".*: warning: Undefined or garbage value returned to caller",
+                    r".*: warning: Called .+ pointer is.+uninitialized",
+                    r".*: warning: Called .+ pointer is.+uninitalized",  # match a typo in compiler message
+                    r".*: warning: Use of zero-allocated memory",
+                    r".*: warning: Dereference of undefined pointer value",
+                    r".*: warning: Passed-by-value .+ contains uninitialized data",
+                    r".*: warning: Branch condition evaluates to a garbage value",
+                    r".*: warning: The .+ of .+ is an uninitialized value.",
+                    r".*: warning: .+ is used uninitialized whenever .+sometimes-uninitialized",
+                    r".*: warning: Assigned value is garbage or undefined"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
+        'description':'Result of malloc type incompatible with sizeof operand type',
+        'patterns':[r".*: warning: Result of '.+' is converted to .+ incompatible with sizeof operand type"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
+        'description':'Return value not checked',
+        'patterns':[r".*: warning: The return value from .+ is not checked"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
+        'description':'Possible heap pollution',
+        'patterns':[r".*: warning: .*Possible heap pollution from .+ type .+"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
+        'description':'Allocation size of 0 byte',
+        'patterns':[r".*: warning: Call to .+ has an allocation size of 0 byte"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
+        'description':'Result of malloc type incompatible with sizeof operand type',
+        'patterns':[r".*: warning: Result of '.+' is converted to .+ incompatible with sizeof operand type"] },
+
+    { 'category':'C/C++',   'severity':severity.HARMLESS,     'members':[], 'option':'',
+        'description':'Discarded qualifier from pointer target type',
+        'patterns':[r".*: warning: .+ discards '.+' qualifier from pointer target type"] },
+    { 'category':'C/C++',   'severity':severity.HARMLESS,     'members':[], 'option':'',
+        'description':'Use snprintf instead of sprintf',
+        'patterns':[r".*: warning: .*sprintf is often misused; please use snprintf"] },
+    { 'category':'C/C++',   'severity':severity.HARMLESS,     'members':[], 'option':'',
+        'description':'Unsupported optimizaton flag',
+        'patterns':[r".*: warning: optimization flag '.+' is not supported"] },
+    { 'category':'C/C++',   'severity':severity.HARMLESS,     'members':[], 'option':'',
+        'description':'Extra or missing parentheses',
+        'patterns':[r".*: warning: equality comparison with extraneous parentheses",
+                    r".*: warning: .+ within .+Wlogical-op-parentheses"] },
+    { 'category':'C/C++',   'severity':severity.HARMLESS,     'members':[], 'option':'mismatched-tags',
+        'description':'Mismatched class vs struct tags',
+        'patterns':[r".*: warning: '.+' defined as a .+ here but previously declared as a .+mismatched-tags",
+                    r".*: warning: .+ was previously declared as a .+mismatched-tags"] },
 
     # these next ones are to deal with formatting problems resulting from the log being mixed up by 'make -j'
     { 'category':'C/C++',   'severity':severity.SKIP,     'members':[], 'option':'',
@@ -390,6 +629,48 @@ warnpatterns = [
         'description':'',
         'patterns':[r".*: warning: In file included from .+,"] },
 
+    # warnings from clang-tidy
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy readability',
+        'patterns':[r".*: .+\[readability-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy c++ core guidelines',
+        'patterns':[r".*: .+\[cppcoreguidelines-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy google-runtime',
+        'patterns':[r".*: .+\[google-runtime-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy google-build',
+        'patterns':[r".*: .+\[google-build-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy google-explicit',
+        'patterns':[r".*: .+\[google-explicit-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy google-readability',
+        'patterns':[r".*: .+\[google-readability-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy google-global',
+        'patterns':[r".*: .+\[google-global-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy modernize',
+        'patterns':[r".*: .+\[modernize-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy misc',
+        'patterns':[r".*: .+\[misc-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy CERT',
+        'patterns':[r".*: .+\[cert-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy llvm',
+        'patterns':[r".*: .+\[llvm-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy clang-diagnostic',
+        'patterns':[r".*: .+\[clang-diagnostic-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy clang-analyzer',
+        'patterns':[r".*: .+\[clang-analyzer-.+\]$",
+                    r".*: Call Path : .+$"] },
+
     # catch-all for warnings this script doesn't know about yet
     { 'category':'C/C++',   'severity':severity.UNKNOWN,  'members':[], 'option':'',
         'description':'Unclassified/unrecognized warnings',
@@ -401,13 +682,14 @@ cur_row_color = 0
 row_colors = [ 'e0e0e0', 'd0d0d0' ]
 
 def output(text):
-    print(text, end=' ')
+    print text,
 
 def htmlbig(param):
     return '<font size="+2">' + param + '</font>'
 
 def dumphtmlprologue(title):
     output('<html>\n<head>\n<title>' + title + '</title>\n<body>\n')
+    output('<a name="PageTop">')
     output(htmlbig(title))
     output('<p>\n')
 
@@ -418,16 +700,21 @@ def tablerow(text):
     output(text,)
     output('</td></tr>')
 
-def begintable(text, backgroundcolor):
+def begintable(text, backgroundcolor, extraanchor):
     global anchor
     output('<table border="1" rules="cols" frame="box" width="100%" bgcolor="black"><tr bgcolor="' +
-        backgroundcolor + '"><a name="anchor' + str(anchor) + '"><td>')
+        backgroundcolor + '"><a name="anchor' + str(anchor) + '">')
+    if extraanchor:
+        output('<a name="' + extraanchor + '">')
+    output('<td>')
     output(htmlbig(text[0]) + '<br>')
     for i in text[1:]:
         output(i + '<br>')
     output('</td>')
-    output('<td width="100" bgcolor="grey"><a align="right" href="#anchor' + str(anchor-1) +
-        '">previous</a><br><a align="right" href="#anchor' + str(anchor+1) + '">next</a>')
+    output('<td width="100" bgcolor="grey">' +
+           '<a align="right" href="#PageTop">top</a><br>' +
+           '<a align="right" href="#anchor' + str(anchor-1) + '">previous</a><br>' +
+           '<a align="right" href="#anchor' + str(anchor+1) + '">next</a>')
     output('</td></a></tr>')
     anchor += 1
 
@@ -440,17 +727,49 @@ def dumpstats():
     known = 0
     unknown = 0
     for i in warnpatterns:
+        i['members'] = sorted(set(i['members']))
         if i['severity'] == severity.UNKNOWN:
             unknown += len(i['members'])
         elif i['severity'] != severity.SKIP:
             known += len(i['members'])
-    output('Number of classified warnings: <b>' + str(known) + '</b><br>' )
-    output('Number of unclassified warnings: <b>' + str(unknown) + '</b><br>')
+    output('\nNumber of classified warnings: <b>' + str(known) + '</b><br>' )
+    output('\nNumber of unclassified warnings: <b>' + str(unknown) + '</b><br>')
     total = unknown + known
-    output('Total number of warnings: <b>' + str(total) + '</b>')
+    output('\nTotal number of warnings: <b>' + str(total) + '</b>')
     if total < 1000:
         output('(low count may indicate incremental build)')
-    output('<p>')
+    output('\n<p>\n')
+
+# dump count of warnings of a given severity in TOC
+def dumpcount(sev):
+    first = True
+    for i in warnpatterns:
+      if i['severity'] == sev and len(i['members']) > 0:
+          if first:
+              output(headerforseverity(sev) + ':\n<blockquote>' +
+                     '<table border="1" frame="box" width="100%">')
+          output('<tr bgcolor="' + colorforseverity(sev) + '">' +
+                 '<td><a href="#' + i['anchor'] + '">' + descriptionfor(i) +
+                 ' (' + str(len(i['members'])) + ')</a></td></tr>\n')
+          first = False
+    if not first:
+        output('</table></blockquote>\n')
+
+# dump table of content, list of all warning patterns
+def dumptoc():
+    n = 1
+    output('<blockquote>\n')
+    for i in warnpatterns:
+        i['anchor'] = 'Warning' + str(n)
+        n += 1
+    dumpcount(severity.FIXMENOW)
+    dumpcount(severity.HIGH)
+    dumpcount(severity.MEDIUM)
+    dumpcount(severity.LOW)
+    dumpcount(severity.TIDY)
+    dumpcount(severity.HARMLESS)
+    dumpcount(severity.UNKNOWN)
+    output('</blockquote>\n<p>\n')
 
 def allpatterns(cat):
     pats = ''
@@ -472,7 +791,7 @@ def dumpfixed():
         if len(i['members']) == 0 and i['severity'] != severity.SKIP:
             if tablestarted == False:
                 tablestarted = True
-                begintable(['Fixed warnings', 'No more occurences. Please consider turning these in to errors if possible, before they are reintroduced in to the build'], 'blue')
+                begintable(['Fixed warnings', 'No more occurences. Please consider turning these in to errors if possible, before they are reintroduced in to the build'], 'blue', '')
             tablerow(i['description'] + ' (' + allpatterns(i) + ') ' + i['option'])
     if tablestarted:
         endtable()
@@ -484,7 +803,7 @@ def dumpcategory(cat):
         header = [descriptionfor(cat),str(len(cat['members'])) + ' occurences:']
         if cat['option'] != '':
             header[1:1] = [' (related option: ' + cat['option'] +')']
-        begintable(header, colorforseverity(cat['severity']))
+        begintable(header, colorforseverity(cat['severity']), cat['anchor'])
         for i in cat['members']:
             tablerow(i)
         endtable()
@@ -555,10 +874,12 @@ for line in infile:
 # dump the html output to stdout
 dumphtmlprologue('Warnings for ' + platformversion + ' - ' + targetproduct + ' - ' + targetvariant)
 dumpstats()
+dumptoc()
 dumpseverity(severity.FIXMENOW)
 dumpseverity(severity.HIGH)
 dumpseverity(severity.MEDIUM)
 dumpseverity(severity.LOW)
+dumpseverity(severity.TIDY)
 dumpseverity(severity.HARMLESS)
 dumpseverity(severity.UNKNOWN)
 dumpfixed()

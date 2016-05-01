@@ -4,12 +4,21 @@
 
 LOCAL_CFLAGS += -DGTEST_OS_LINUX_ANDROID -DGTEST_HAS_STD_STRING
 
-LOCAL_C_INCLUDES += external/gtest/include
-
 ifndef LOCAL_SDK_VERSION
-LOCAL_STATIC_LIBRARIES += libgtest libgtest_main
+    LOCAL_STATIC_LIBRARIES += libgtest_main libgtest
 else
-LOCAL_STATIC_LIBRARIES += libgtest_ndk libgtest_main_ndk
+    ifneq (,$(filter c++_%,$(LOCAL_NDK_STL_VARIANT)))
+        my_ndk_gtest_suffix := _libcxx
+    else ifneq ($(filter stlport_,$(LOCAL_NDK_STL_VARIANT)),)
+        my_ndk_gtest_suffix :=
+    else ifneq ($(filter gnustl_,$(LOCAL_NDK_STL_VARIANT)),)
+        my_ndk_gtest_suffix := _gnustl
+    else # system STL, use stlport
+        my_ndk_gtest_suffix :=
+    endif
+    LOCAL_STATIC_LIBRARIES += \
+        libgtest_main_ndk$(my_ndk_gtest_suffix) \
+        libgtest_ndk$(my_ndk_gtest_suffix)
 endif
 
 ifdef LOCAL_MODULE_PATH

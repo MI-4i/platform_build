@@ -63,7 +63,6 @@ PRODUCT_PACKAGES += \
     libfilterfw \
     libkeystore \
     libgatekeeper \
-    libsqlite_jni \
     libwilhelm \
     logd \
     make_ext4fs \
@@ -83,6 +82,7 @@ PRODUCT_COPY_FILES += \
 
 # The order of PRODUCT_BOOT_JARS matters.
 PRODUCT_BOOT_JARS := \
+    core-oj \
     core-libart \
     conscrypt \
     okhttp \
@@ -113,6 +113,9 @@ PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
     ro.zygote=zygote32
 PRODUCT_COPY_FILES += \
     system/core/rootdir/init.zygote32.rc:root/init.zygote32.rc
+
+PRODUCT_COPY_FILES += \
+    system/core/rootdir/etc/public.libraries.android.txt:system/etc/public.libraries.txt
 
 $(call inherit-product, $(SRC_TARGET_DIR)/product/runtime_libart.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/product/base.mk)

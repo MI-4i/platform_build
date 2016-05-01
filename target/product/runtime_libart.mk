@@ -18,9 +18,11 @@
 
 PRODUCT_PACKAGES += \
     apache-xml \
+    ahat \
     bouncycastle \
     cacerts \
     conscrypt \
+    core-oj \
     core-junit \
     core-libart \
     dalvikvm \
@@ -38,12 +40,15 @@ PRODUCT_PACKAGES += \
     libicui18n \
     libicuuc \
     libjavacore \
+    libopenjdk \
+    libopenjdkjvm \
     libnativehelper \
     libssl \
     libz \
     oatdump \
     okhttp \
-    patchoat
+    patchoat \
+    profman
 
 PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
     dalvik.vm.image-dex2oat-Xms=64m \

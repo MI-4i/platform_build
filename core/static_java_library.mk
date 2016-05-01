@@ -23,6 +23,10 @@ LOCAL_UNINSTALLABLE_MODULE := true
 LOCAL_IS_STATIC_JAVA_LIBRARY := true
 LOCAL_MODULE_CLASS := JAVA_LIBRARIES
 
+#################################
+include $(BUILD_SYSTEM)/configure_local_jack.mk
+#################################
+
 # Hack to build static Java library with Android resource
 # See bug 5714516
 all_resources :=
@@ -59,16 +63,10 @@ endif
 
 LOCAL_PROGUARD_FLAGS := $(addprefix -include ,$(proguard_options_file)) $(LOCAL_PROGUARD_FLAGS)
 
-#################################
-include $(BUILD_SYSTEM)/configure_local_jack.mk
-#################################
-
-ifdef LOCAL_JACK_ENABLED
 ifndef LOCAL_JACK_PROGUARD_FLAGS
     LOCAL_JACK_PROGUARD_FLAGS := $(LOCAL_PROGUARD_FLAGS)
 endif
 LOCAL_JACK_PROGUARD_FLAGS := $(addprefix -include ,$(proguard_options_file)) $(LOCAL_JACK_PROGUARD_FLAGS)
-endif # LOCAL_JACK_ENABLED
 
 endif  # LOCAL_RESOURCE_DIR
 
@@ -122,16 +120,14 @@ $(R_file_stamp): PRIVATE_MANIFEST_PACKAGE_NAME :=
 $(R_file_stamp): PRIVATE_MANIFEST_INSTRUMENTATION_FOR :=
 
 $(R_file_stamp) : $(all_resources) $(full_android_manifest) $(AAPT) $(framework_res_package_export_deps)
-	@echo -e ${CL_YLW}"target R.java/Manifest.java:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
+	@echo "target R.java/Manifest.java: $(PRIVATE_MODULE) ($@)"
 	$(create-resource-java-files)
 	$(hide) find $(PRIVATE_SOURCE_INTERMEDIATES_DIR) -name R.java | xargs cat > $@
 
-$(LOCAL_BUILT_MODULE): $(R_file_stamp)
-ifdef LOCAL_JACK_ENABLED
-$(noshrob_classes_jack): $(R_file_stamp)
-$(full_classes_jack): $(R_file_stamp)
-endif # LOCAL_JACK_ENABLED
-$(full_classes_compiled_jar): $(R_file_stamp)
+$(LOCAL_BUILT_MODULE) \
+$(full_classes_compiled_jar) \
+$(noshrob_classes_jack) $(full_classes_jack) $(jack_check_timestamp) \
+  : $(R_file_stamp)
 
 # Rule to build AAR, archive including classes.jar, resource, etc.
 built_aar := $(intermediates.COMMON)/javalib.aar

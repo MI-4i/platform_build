@@ -126,6 +126,7 @@ $(hide) java -Xmx256M \
 	$(PRIVATE_PARAMS) CollectAllTests $(1) $(2) $(3) "$(4)" $(5) $(6) $(7)
 endef
 
+OJ_INTERMEDIATES :=$(call intermediates-dir-for,JAVA_LIBRARIES,core-oj,,COMMON)
 CORE_INTERMEDIATES :=$(call intermediates-dir-for,JAVA_LIBRARIES,core-libart,,COMMON)
 CONSCRYPT_INTERMEDIATES :=$(call intermediates-dir-for,JAVA_LIBRARIES,conscrypt,,COMMON)
 BOUNCYCASTLE_INTERMEDIATES :=$(call intermediates-dir-for,JAVA_LIBRARIES,bouncycastle,,COMMON)
@@ -142,7 +143,7 @@ CONSCRYPTTESTS_INTERMEDIATES :=$(call intermediates-dir-for,JAVA_LIBRARIES,consc
 TZDATAUPDATETESTS_INTERMEDIATES :=$(call intermediates-dir-for,JAVA_LIBRARIES,tzdata_update-tests,,COMMON)
 
 GEN_CLASSPATH := \
-    $(CORE_INTERMEDIATES)/classes.jar:$(CONSCRYPT_INTERMEDIATES)/classes.jar:$(BOUNCYCASTLE_INTERMEDIATES)/classes.jar:$(APACHEXML_INTERMEDIATES)/classes.jar:$(APACHEHARMONYTESTS_INTERMEDIATES)/classes.jar:$(OKHTTP_INTERMEDIATES)/classes.jar:$(OKHTTPTESTS_INTERMEDIATES)/classes.jar:$(OKHTTP_REPACKAGED_INTERMEDIATES)/classes.jar:$(JUNIT_INTERMEDIATES)/classes.jar:$(SQLITEJDBC_INTERMEDIATES)/javalib.jar:$(CORETESTS_INTERMEDIATES)/javalib.jar:$(JSR166TESTS_INTERMEDIATES)/javalib.jar:$(CONSCRYPTTESTS_INTERMEDIATES)/javalib.jar:$(TZDATAUPDATETESTS_INTERMEDIATES)/javalib.jar
+    $(OJ_INTERMEDIATES)/classes.jar:$(CORE_INTERMEDIATES)/classes.jar:$(CONSCRYPT_INTERMEDIATES)/classes.jar:$(BOUNCYCASTLE_INTERMEDIATES)/classes.jar:$(APACHEXML_INTERMEDIATES)/classes.jar:$(APACHEHARMONYTESTS_INTERMEDIATES)/classes.jar:$(OKHTTP_INTERMEDIATES)/classes.jar:$(OKHTTPTESTS_INTERMEDIATES)/classes.jar:$(OKHTTP_REPACKAGED_INTERMEDIATES)/classes.jar:$(JUNIT_INTERMEDIATES)/classes.jar:$(SQLITEJDBC_INTERMEDIATES)/javalib.jar:$(CORETESTS_INTERMEDIATES)/javalib.jar:$(JSR166TESTS_INTERMEDIATES)/javalib.jar:$(CONSCRYPTTESTS_INTERMEDIATES)/javalib.jar:$(TZDATAUPDATETESTS_INTERMEDIATES)/javalib.jar
 
 CTS_CORE_XMLS := \
 	$(CTS_TESTCASES_OUT)/android.core.tests.libcore.package.dalvik.xml \
@@ -352,10 +353,11 @@ $(CTS_TESTCASES_OUT)/android.core.tests.libcore.package.tzdata.xml: $(CTS_CORE_X
 CORE_VM_TEST_TF_DESC := $(CTS_TESTCASES_OUT)/android.core.vm-tests-tf.xml
 
 # core tests only needed to get hold of junit-framework-classes
+OJ_INTERMEDIATES :=$(call intermediates-dir-for,JAVA_LIBRARIES,core-oj,,COMMON)
 CORE_INTERMEDIATES :=$(call intermediates-dir-for,JAVA_LIBRARIES,core-libart,,COMMON)
 JUNIT_INTERMEDIATES :=$(call intermediates-dir-for,JAVA_LIBRARIES,core-junit,,COMMON)
 
-GEN_CLASSPATH := $(CORE_INTERMEDIATES)/classes.jar:$(JUNIT_INTERMEDIATES)/classes.jar:$(VMTESTSTF_JAR):$(TF_JAR)
+GEN_CLASSPATH := $(OJ_INTERMEDIATES)/classes.jar:$(CORE_INTERMEDIATES)/classes.jar:$(JUNIT_INTERMEDIATES)/classes.jar:$(VMTESTSTF_JAR):$(TF_JAR)
 
 $(CORE_VM_TEST_TF_DESC): PRIVATE_CLASSPATH:=$(GEN_CLASSPATH)
 # Please see big comment above on why this line depends on javalib.jar instead of classes.jar
@@ -387,9 +389,8 @@ $(INTERNAL_CTS_TARGET): PRIVATE_DIR := $(cts_dir)/$(cts_name)
 $(INTERNAL_CTS_TARGET): TMP_DIR := $(cts_dir)/temp
 $(INTERNAL_CTS_TARGET): $(cts_dir)/all_cts_files_stamp $(DEFAULT_TEST_PLAN)
 	$(hide) echo "Package CTS: $@"
-	$(hide) cd $(dir $@) && zip -rq $(notdir $@) $(PRIVATE_NAME)
+	$(hide) cd $(dir $@) && zip -rqX $(notdir $@) $(PRIVATE_NAME)
 
 .PHONY: cts
 cts: $(INTERNAL_CTS_TARGET) adb
 $(call dist-for-goals,cts,$(INTERNAL_CTS_TARGET))
-

@@ -2,12 +2,8 @@
 # vim: ts=2 sw=2
 
 import optparse
+import re
 import sys
-
-try:
-  raw_input
-except NameError:
-  raw_input = input
 
 
 class Dependency:
@@ -47,7 +43,7 @@ class Dependencies:
     t.pos = pos
 
   def get(self, tgt):
-    if tgt in self.lines:
+    if self.lines.has_key(tgt):
       return self.lines[tgt]
     else:
       return None

@@ -24,6 +24,7 @@
 #     DEFAULT_APP_TARGET_SDK
 #     BUILD_ID
 #     BUILD_NUMBER
+#     BUILD_DATETIME
 #     SECURITY_PATCH
 #
 
@@ -55,6 +56,15 @@ ifeq "" "$(PLATFORM_SDK_VERSION)"
   # SDK version the branch is based on and PLATFORM_VERSION_CODENAME holds
   # the code-name of the new development work.
   PLATFORM_SDK_VERSION := 23
+endif
+
+ifeq "" "$(PLATFORM_JACK_MIN_SDK_VERSION)"
+  # This is definition of the min SDK version given to Jack for the current
+  # platform. For released version it should be the same as
+  # PLATFORM_SDK_VERSION. During development, this number may be incremented
+  # before PLATFORM_SDK_VERSION if the plateform starts to add new java
+  # language supports.
+  PLATFORM_JACK_MIN_SDK_VERSION := 24
 endif
 
 ifeq "" "$(PLATFORM_VERSION_CODENAME)"
@@ -103,7 +113,7 @@ ifeq "" "$(PLATFORM_SECURITY_PATCH)"
   # Can be an arbitrary string, but must be a single word.
   #
   # If there is no $PLATFORM_SECURITY_PATCH set, keep it empty.
-  PLATFORM_SECURITY_PATCH := 2016-04-02
+  PLATFORM_SECURITY_PATCH := 2016-03-01
 endif
 
 ifeq "" "$(PLATFORM_BASE_OS)"
@@ -123,6 +133,18 @@ ifeq "" "$(BUILD_ID)"
   BUILD_ID := UNKNOWN
 endif
 
+ifeq "" "$(BUILD_DATETIME)"
+  # Used to reproduce builds by setting the same time. Must be the number
+  # of seconds since the Epoch.
+  BUILD_DATETIME := $(shell date +%s)
+endif
+
+ifneq (,$(findstring Darwin,$(shell uname -sm)))
+DATE := date -r $(BUILD_DATETIME)
+else
+DATE := date -d @$(BUILD_DATETIME)
+endif
+
 ifeq "" "$(BUILD_NUMBER)"
   # BUILD_NUMBER should be set to the source control value that
   # represents the current state of the source code.  E.g., a
@@ -133,5 +155,5 @@ ifeq "" "$(BUILD_NUMBER)"
   # If no BUILD_NUMBER is set, create a useful "I am an engineering build
   # from this date/time" value.  Make it start with a non-digit so that
   # anyone trying to parse it as an integer will probably get "0".
-  BUILD_NUMBER := eng.$(USER).$(shell date +%Y%m%d.%H%M%S)
+  BUILD_NUMBER := eng.$(shell echo $${USER:0:6}).$(shell $(DATE) +%Y%m%d.%H%M%S)
 endif

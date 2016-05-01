@@ -23,38 +23,31 @@ import sys
 # The constants in system_properties.h includes the termination NUL,
 # so we decrease the values by 1 here.
 PROP_NAME_MAX = 31
-# PROP_VALUE_MAX = 91
-PROP_VALUE_MAX = 128
+PROP_VALUE_MAX = 91
 
 # Put the modifications that you need to make into the /system/build.prop into this
 # function. The prop object has get(name) and put(name,value) methods.
-def mangle_build_prop(prop, overrides):
-  if len(overrides) == 0:
-    return
-  overridelist = overrides.replace(" ",",").split(",")
-  for proppair in overridelist:
-    values = proppair.split("=")
-    prop.put(values[0], values[1])
-
+def mangle_build_prop(prop):
   pass
 
 # Put the modifications that you need to make into the /default.prop into this
 # function. The prop object has get(name) and put(name,value) methods.
 def mangle_default_prop(prop):
-  # If ro.adb.secure is not 1, then enable adb on USB by default
-  # (this is for eng builds)
-  if prop.get("ro.adb.secure") != "1":
+  # If ro.debuggable is 1, then enable adb on USB by default
+  # (this is for userdebug builds)
+  if prop.get("ro.debuggable") == "1":
     val = prop.get("persist.sys.usb.config")
-    if val == "":
-      val = "adb"
-    else:
-      val = val + ",adb"
-    prop.put("persist.sys.usb.config", val)
+    if "adb" not in val:
+      if val == "":
+        val = "adb"
+      else:
+        val = val + ",adb"
+      prop.put("persist.sys.usb.config", val)
   # UsbDeviceManager expects a value here.  If it doesn't get it, it will
   # default to "adb". That might not the right policy there, but it's better
   # to be explicit.
   if not prop.get("persist.sys.usb.config"):
-    prop.put("persist.sys.usb.config", "none")
+    prop.put("persist.sys.usb.config", "none");
 
 def validate(prop):
   """Validate the properties.
@@ -118,10 +111,6 @@ class PropFile:
 
 def main(argv):
   filename = argv[1]
-  if (len(argv) > 2):
-    extraargs = argv[2]
-  else:
-    extraargs = ""
   f = open(filename)
   lines = f.readlines()
   f.close()
@@ -129,7 +118,7 @@ def main(argv):
   properties = PropFile(lines)
 
   if filename.endswith("/build.prop"):
-    mangle_build_prop(properties, extraargs)
+    mangle_build_prop(properties)
   elif filename.endswith("/default.prop"):
     mangle_default_prop(properties)
   else:
@@ -140,7 +129,7 @@ def main(argv):
     sys.exit(1)
 
   # Drop any blacklisted keys
-  for key in argv[3:]:
+  for key in argv[2:]:
     properties.delete(key)
 
   f = open(filename, 'w+')
